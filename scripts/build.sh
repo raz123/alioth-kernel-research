@@ -43,10 +43,10 @@ export KBUILD_BUILD_HOST=research
 export KCFLAGS="-Wno-error=unused-command-line-argument \
 -Wno-error=implicit-enum-enum-cast -Wno-implicit-enum-enum-cast \
 -Wno-error=enum-enum-conversion -Wno-enum-enum-conversion \
--Wno-error=enum-int-conversion -Wno-enum-int-conversion \
 -Wno-error=incompatible-function-pointer-types-strict -Wno-incompatible-function-pointer-types-strict \
 -Wno-error=missing-prototypes -Wno-missing-prototypes \
--Wno-error=cast-function-type-mismatch -Wno-cast-function-type-mismatch"
+-Wno-error=cast-function-type-mismatch -Wno-cast-function-type-mismatch \
+-Wno-error=unknown-warning-option -Wno-unknown-warning-option"
 
 mkdir -p "$OUT"
 cd "$KERNEL_SRC"
