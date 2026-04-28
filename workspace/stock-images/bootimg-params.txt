@@ -1,0 +1,9 @@
+# Captured from stock boot_a-original.img via unpack_bootimg.py
+boot magic: ANDROID!
+kernel_size: 47491096
+ramdisk_size: 1494395
+os_version: 16.0.0
+os_patch_level: 2026-03
+header_version: 3
+command_line_args:
+# Note: header v3 has no DTB inside boot.img; DTB is in dtbo partition.
