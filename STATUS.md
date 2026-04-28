@@ -45,12 +45,29 @@ detect section-mapped huge pages (used to map kernel text on arm64 4.19), so all
 syscall table patches silently failed. With this 6-line fix, all KSU runtime
 hooks now work.
 
-### What's still left for full functionality
+### SELinux integration (`selinux/selinux.c`)
 
-⚠️ **SELinux integration**: All SELinux .c files are still stubbed (`is_ksu_domain` returns false, etc). When KSU intercepts execve to grant root to a manager-allowlisted app, the SELinux domain transition to `ksu` doesn't happen. The app gets uid=0 but stays in original SELinux context, so it'll hit denials when accessing protected files.
-⚠️ **Manager APK + ksud daemon**: Userspace components not installed. Once installed, the kernel side will service their ioctls correctly via the now-working supercall path.
+✅ Replaced stubs with **real 4.19 implementations**:
+- `setenforce/getenforce` — uses 4.19's `enforcing_set`/`enforcing_enabled`
+- `cache_sid` — uses `security_secctx_to_secid` (same API as 5.7+)
+- `is_task_ksu_domain/is_zygote/is_init` — compares cached SID via `selinux_cred(cred)->sid`
+- `setup_selinux/setup_ksu_cred` — sets task_security_struct fields
+- `escape_to_root_for_adb_root` — full uid/gid + capability escalation + SID transition (best-effort)
 
-For typical `adb shell` security research use, none of these matter — adb is already root with elevated SELinux context.
+### Remaining limitation
+
+⚠️ **ksu domain not in active SELinux policy** → `security_secctx_to_secid("u:r:ksu:s0")` returns sid=0. So escalated processes get **uid=0 + full caps** but SELinux MAC context unchanged. SELinux denials may still happen when ksu-domain doesn't exist.
+
+**Mitigations:**
+- userdebug ROM (you have this): `adb shell setenforce 0` removes MAC enforcement entirely
+- Manager APK installs: most root use cases work since uid=0 + caps suffice for many ops
+- Full ksu domain transition: requires runtime sepolicy.c reimpl for 4.19 (~1-2 days more, deferred)
+
+For your security research use (frida + BPF + stackplz from `adb shell`): no SELinux issues — adb already has trusted SELinux context.
+
+### Manager APK + ksud daemon
+
+Userspace components: not installed. Once installed, the kernel side services their supercall ioctls correctly via the now-working hook path.
 
 To fully restore KSU functionality on 4.19 would require ~1-2 weeks of arch-specific work:
 1. Reimplement syscall hook layer for 4.19 syscall table layout
