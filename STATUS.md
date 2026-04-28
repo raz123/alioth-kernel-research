@@ -4,7 +4,7 @@
 |---|---|---|
 | Pre-Phase | DONE | deps + scripts + stock backup + kernel source pinned |
 | Phase 0 (vanilla) | DONE | NDK r29 clang r563880c match for stock; vermagic identical |
-| Phase 1 (BTF+ftrace+KSU) | **DONE — KSU + Manager + Permissive 全活** | Latest KSU v3.2.4 + Manager APK installed; SELinux auto-Permissive via init.rc; ksud-kernel ioctl 通信验证 |
+| Phase 1 (BTF+ftrace+KSU) | **🏆 完整功能 — Manager「工作中 ✓」** | KSU v3.2.4 全集成: 16 个 KSU 文件 patch + 真实 supercall dispatch + apk_sign 验证我们 fork 的 manager; 「Crowning manager」+ 「工作中 ✓」<GKI> 状态; 4 个 tab 全可用 |
 | Phase 2 (BPF backport) | pending | |
 
 ## Current device state
@@ -27,15 +27,17 @@
 ✅ frida unaffected (no kernel dependency)
 ✅ adb root persists (userdebug ROM)
 
-## KSU on 4.19 — current capability
+## KSU on 4.19 — full capability (final state)
 
-✅ All three init paths now work:
-   - `ksu_syscall_hook_init` — dispatcher installed at NI-syscall slot 42
-   - `ksu_supercalls_init` — reboot kprobe registered (manager comms)
-   - `ksu_syscall_hook_manager_init` — kretprobes + 4 syscall hooks (setresuid/execve/newfstatat/faccessat) + sys_enter tracepoint
-✅ `handle_setresuid` hook firing live for uid transitions during boot
+✅ All KSU init paths active (hook_init / supercalls_init / hook_manager_init)
+✅ Real `supercall/dispatch.c` running on 4.19 — full 14-command IOCTL dispatch active
+✅ `apk_sign.c` re-enabled — verifies manager APK signature against EXPECTED_HASH
+✅ `throne_tracker` finds manager APK at boot, `Crowning manager` log
+✅ `handle_setresuid` hook firing live for uid transitions
 ✅ KSU init.rc fragment appended; `on_post_fs_data!` fires
-✅ `ksu_register_syscall_hook` succeeds (was silently failing on 4.19 before pmd_leaf fix)
+✅ Stable RSA-4096 keystore committed as GH secret — APK signature deterministic across CI runs
+✅ ksud daemon installs, talks to kernel via ioctl, all features queryable
+✅ 4 manager tabs functional: 主页 / 超级用户 / 模块 / 设置
 
 ### The breakthrough fix
 
@@ -54,16 +56,13 @@ hooks now work.
 - `setup_selinux/setup_ksu_cred` — sets task_security_struct fields
 - `escape_to_root_for_adb_root` — full uid/gid + capability escalation + SID transition (best-effort)
 
-### Remaining limitation
+### Remaining minor limitation
 
-⚠️ **ksu domain not in active SELinux policy** → `security_secctx_to_secid("u:r:ksu:s0")` returns sid=0. So escalated processes get **uid=0 + full caps** but SELinux MAC context unchanged. SELinux denials may still happen when ksu-domain doesn't exist.
+⚠️ **ksu domain not in active SELinux policy** → `security_secctx_to_secid("u:r:ksu:s0")` returns sid=0. So escalated processes get **uid=0 + full caps** but stay in original SELinux context.
 
-**Mitigations:**
-- userdebug ROM (you have this): `adb shell setenforce 0` removes MAC enforcement entirely
-- Manager APK installs: most root use cases work since uid=0 + caps suffice for many ops
-- Full ksu domain transition: requires runtime sepolicy.c reimpl for 4.19 (~1-2 days more, deferred)
+**Mitigation auto-applied:** init.rc fragment auto-runs `setenforce 0` at multiple stages → SELinux is permissive at boot. KSU functionality fully unaffected.
 
-For your security research use (frida + BPF + stackplz from `adb shell`): no SELinux issues — adb already has trusted SELinux context.
+For full enforcing ksu_domain: needs sepolicy.c rewrite for 4.19's `selinux_state.ss->policydb` (~1-2 days, deferred to a future Phase).
 
 ### Manager APK + ksud daemon
 
