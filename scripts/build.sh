@@ -38,15 +38,9 @@ export LLVM=1
 export LLVM_IAS=1
 export KBUILD_BUILD_USER=claude
 export KBUILD_BUILD_HOST=research
-# Suppress newer clang-21 warnings that older Android clang r563880c didn't enforce.
-# Adding both -Wno-error=X and -Wno-X to be safe with sub-Makefiles that set -Werror.
-export KCFLAGS="-Wno-error=unused-command-line-argument \
--Wno-error=implicit-enum-enum-cast -Wno-implicit-enum-enum-cast \
--Wno-error=enum-enum-conversion -Wno-enum-enum-conversion \
--Wno-error=incompatible-function-pointer-types-strict -Wno-incompatible-function-pointer-types-strict \
--Wno-error=missing-prototypes -Wno-missing-prototypes \
--Wno-error=cast-function-type-mismatch -Wno-cast-function-type-mismatch \
--Wno-error=unknown-warning-option -Wno-unknown-warning-option"
+# With AOSP clang, no override flags needed. Kept empty so KCFLAGS is unset
+# to ensure we don't introduce divergence vs stock build.
+unset KCFLAGS
 
 mkdir -p "$OUT"
 cd "$KERNEL_SRC"
