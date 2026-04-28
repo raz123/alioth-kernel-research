@@ -1,0 +1,11 @@
+--- /proc/self/fd/12	2026-04-28 16:37:44.661229342 +0800
++++ workspace/kernel/android_kernel_xiaomi_sm8250/scripts/link-vmlinux.sh	2026-04-28 16:37:37.396553070 +0800
+@@ -433,7 +433,7 @@
+ # fill in BTF IDs
+ if [ -n "${CONFIG_DEBUG_INFO_BTF}" ]; then
+ info BTFIDS vmlinux
+-${RESOLVE_BTFIDS} vmlinux
++if [ -x "${RESOLVE_BTFIDS}" ]; then ${RESOLVE_BTFIDS} vmlinux; else info "BTFIDS" "skipping (resolve_btfids not present in 4.19)"; fi
+ fi
+ 
+ if [ -n "${CONFIG_BUILDTIME_EXTABLE_SORT}" ]; then

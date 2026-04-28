@@ -80,11 +80,9 @@ fi
 # Step 3: olddefconfig (resolve any new options from kconfig defaults)
 make O=out olddefconfig 2>&1 | tee -a "$LOG"
 
-# Step 4a: build resolve_btfids host tool (needed when CONFIG_DEBUG_INFO_BTF=y)
-if grep -q '^CONFIG_DEBUG_INFO_BTF=y' out/.config; then
-  echo "=== building resolve_btfids host tool (BTF enabled) ===" | tee -a "$LOG"
-  make O=out -j$(nproc) tools/bpf/resolve_btfids 2>&1 | tee -a "$LOG"
-fi
+# Note: BTFIDS step in scripts/link-vmlinux.sh is patched to skip if
+# resolve_btfids tool is missing (4.19 doesn't have tools/bpf/resolve_btfids/).
+# See workspace/kernel/patches/phase1-btf-ftrace/skip-btfids-if-missing.patch
 
 # Step 4: build
 echo "=== make Image.gz dtbs (parallel $(nproc)) ===" | tee -a "$LOG"
