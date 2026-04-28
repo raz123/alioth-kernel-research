@@ -80,6 +80,12 @@ fi
 # Step 3: olddefconfig (resolve any new options from kconfig defaults)
 make O=out olddefconfig 2>&1 | tee -a "$LOG"
 
+# Step 4a: build resolve_btfids host tool (needed when CONFIG_DEBUG_INFO_BTF=y)
+if grep -q '^CONFIG_DEBUG_INFO_BTF=y' out/.config; then
+  echo "=== building resolve_btfids host tool (BTF enabled) ===" | tee -a "$LOG"
+  make O=out -j$(nproc) tools/bpf/resolve_btfids 2>&1 | tee -a "$LOG"
+fi
+
 # Step 4: build
 echo "=== make Image.gz dtbs (parallel $(nproc)) ===" | tee -a "$LOG"
 make O=out -j$(nproc) Image.gz dtbs 2>&1 | tee -a "$LOG"
