@@ -27,6 +27,17 @@ python3 "$ROOT/workspace/toolchain/mkbootimg/mkbootimg.py" \
   --os_patch_level 2026-03 \
   --output "$output"
 
+# Add AVB hash footer matching stock's structure. Without this, alioth's
+# bootloader cannot determine image size and hangs at fastboot boot.
+# Algorithm NONE = no signing (works on unlocked bootloader); hash descriptor
+# allows the bootloader to verify image integrity if it wants to.
+python3 "$ROOT/workspace/toolchain/mkbootimg/avbtool.py" add_hash_footer \
+  --image "$output" \
+  --partition_size 201326592 \
+  --partition_name boot \
+  --salt 8d9e3353541ae39fa070bfb5c16c9b7c644c281aa8476c388f82e04cf360f77c \
+  --algorithm NONE
+
 ls -la "$output"
 echo "=== packed boot.img ready: $output ==="
 echo "$output" > "$BUILDS/LATEST"
