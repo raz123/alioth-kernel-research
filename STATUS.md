@@ -83,11 +83,24 @@ libbpf: prog 'trace_open': failed to attach: Unknown error 524
 绕开 alioth bootloader 的 ~64MB Image 大小限制——内核 Image 零增长。
 完整说明: `docs/runbook/2026-04-28-btf-firmware-loader.md`
 
-### Phase 2 Round 2: arm64 BPF trampoline backport (in progress)
+### Phase 2 Round 2: arm64 BPF trampoline JIT backport (committed, gated)
 
-To unlock fentry/fexit/lsm attachment, need to backport upstream Linux 6.0+'s
-arm64 trampoline assembler (`arch_prepare_bpf_trampoline()` + `bpf_arch_text_poke()`).
-Estimated 600+ lines of arm64 JIT. Tracking: `workspace/kernel/patches/phase2-bpf-backport/01-arm64-trampoline/`
+**JIT side: DONE (committed kernel-side at `9a7c71dabb06`)**
+- `arch_prepare_bpf_trampoline()` strong-symbol implementation (4.19-adapted from upstream 6.0)
+- `bpf_arch_text_poke()` for arm64 (nop ↔ bl patching)
+- Supporting `aarch64_insn_gen_load_store_imm()` + A64_LS_IMM macros
+- ~500 LOC, compiles cleanly, RAM-boots, vmlinux has the strong symbols
+
+**Attach side: still blocked by orthogonal subsystem (`ARCH_SUPPORTS_FTRACE_DIRECT`)**
+- `kernel/bpf/trampoline.c::register_fentry()` calls `register_ftrace_direct()` first
+- That helper is a static-inline stub returning `-ENOTSUPP` until
+  `CONFIG_DYNAMIC_FTRACE_WITH_DIRECT_CALLS=y` is selectable, which depends
+  on `ARCH_SUPPORTS_FTRACE_DIRECT` (added to arm64 only in upstream Linux 6.2)
+- Blocks our trampoline emitter from being reached on most kernel functions
+
+**Path forward**: backport `ARCH_SUPPORTS_FTRACE_DIRECT` and arm64 ftrace
+direct-call infrastructure (~200-300 more LOC in ftrace internals + arm64
+entry asm). Tracking: `workspace/kernel/patches/phase2-bpf-backport/01-arm64-trampoline/STRATEGY.md`
 
 ## KSU on 4.19 — full capability (final state)
 
