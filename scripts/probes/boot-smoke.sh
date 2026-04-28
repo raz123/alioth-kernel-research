@@ -12,8 +12,11 @@ adb shell cat /proc/version 2>/dev/null | grep -q "claude@research" || fail "/pr
 adb shell id | grep -q "uid=0" || fail "adb not root"
 adb shell getprop sys.boot_completed | grep -q "1" || fail "boot not completed"
 
-# No kernel BUG/oops in dmesg
-if adb shell 'dmesg 2>/dev/null | grep -iE "BUG:|Oops|kernel panic"' | grep -q .; then
+# No kernel BUG/oops in dmesg.
+# Use word boundaries to avoid matching "debug" / "ramoops" / "mtdoops".
+if adb shell 'dmesg 2>/dev/null | grep -E "BUG: |Unable to handle kernel|Kernel panic|\\bOops\\b"' | grep -q .; then
+  echo "WARNING: dmesg shows potential kernel issues:"
+  adb shell 'dmesg 2>/dev/null | grep -E "BUG: |Unable to handle kernel|Kernel panic|\\bOops\\b"' | head -5
   fail "dmesg shows kernel issues"
 fi
 
