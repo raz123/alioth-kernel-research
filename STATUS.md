@@ -11,4 +11,4 @@
 
 - Active slot: `_a` (stock LineageOS 23.2 kernel 4.19.325-cip128)
 - Slot `_b`: not yet touched
-- Stock backup taken: NO
+- Stock backup taken: YES (2026-04-28, sha256 in `workspace/stock-images/SHA256SUMS`)

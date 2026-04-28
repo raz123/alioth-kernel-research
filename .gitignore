@@ -1,0 +1,9 @@
+workspace/stock-images/*.img
+workspace/stock-images/getprop-*.txt
+workspace/builds/
+workspace/toolchain/
+workspace/kernel/android_kernel_xiaomi_sm8250/
+workspace/kernel/KernelSU/
+workspace/kernel/linux-stable/
+workspace/tests/arm64/
+runs/
