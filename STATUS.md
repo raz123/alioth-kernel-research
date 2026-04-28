@@ -9,14 +9,27 @@
 
 ## Current device state
 
-- Active slot: `_a` (research kernel: P1 = ftrace + kprobes + KSU + detached BTF)
-- Latest research kernel: `workspace/builds/20260428-214502-p2-btf-fw6.img` (P2 = P1 + BTF firmware loader patch)
+- Active slot: `_a` flashed with **P2 kernel** (P1 + BTF firmware loader patch) — persistent
+- Persistent image: `workspace/builds/20260428-214502-p2-btf-fw6.img`
+- Kernel: `Linux 4.19.325-cip128-st12-perf-g19e92825409b-dirty #28 ... 21:44:53`
 - `/proc/version` shows `(claude@research)` — our build
-- KSU module: loaded, feature handlers registered
+- KSU module: loaded, feature handlers registered, manager 工作中 ✓
 - BTF file at `/data/local/tmp/vmlinux.btf` (9.7MB strict-4.19, no FLOAT/ENUM64/etc) — required at runtime for tracing/lsm/ext
 - Canonical strict BTF: `workspace/kernel/patches/phase2-bpf-backport/00-survey/btf-fw/vmlinux.btf`
+- Released artifacts at GitHub: [`alioth-r2`](https://github.com/ltlly/alioth-kernel-research/releases/tag/alioth-r2)
 - Stock backup at `workspace/stock-images/boot_a-original.img` for instant restore
 - AVB: vbmeta_a + vbmeta_b flashed with `--disable-verification`
+
+### Phase 2 persistent boot — verified after cold reboot
+
+```
+[   36.081] btf: loaded vmlinux BTF from /data/local/tmp/vmlinux.btf (9762784 bytes)
+[   36.123] btf: btf_parse_vmlinux SUCCESS, 188258 types
+```
+
+`bpftool feature probe` after hard reboot: tracing / lsm / ext / struct_ops all `available`.
+First-attempt BTF load at boot time 5s fails (NetBpfLoad runs before /data is mounted) —
+that's the 5-second-rate-limit retry path. Recovery is automatic; no functional impact.
 
 ## What works in Phase 1
 
