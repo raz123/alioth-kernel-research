@@ -679,3 +679,45 @@ batterystats-ha-1993 ... fentry do_sys_open flags=0
    不可能定位问题。
 5. **tracing_on 是个常被忽视的开关** —— 内核里 bpf_printk 输出可能完全正常但
    被丢弃，因为 trace ring buffer 没启用。
+
+## Phase 2 Round 3 — HAVE_DYNAMIC_FTRACE_WITH_REGS (2026-04-29 00:00–00:23)
+
+After Round 2 had fentry attaching and 451 events/sec firing, the
+remaining gap was that the BPF callback always saw `regs == NULL`. So we
+were running BPF programs against a zero-filled args buffer — fine for
+counters and bpf_printk literals, useless for anything that needs to
+read the function's arguments.
+
+The fix: backport `HAVE_DYNAMIC_FTRACE_WITH_REGS` to arm64 4.19 in the
+mcount-style. Took three iterations.
+
+### Round 3 时间表
+
+| 时间 | 事件 |
+|---|---|
+| 00:11 | 初版: Kconfig + asm/ftrace.h ARCH_SUPPORTS_FTRACE_OPS=1 + entry-ftrace.S 加 ftrace_regs_caller + ftrace.c 加 ftrace_modify_call |
+| 00:14 | flash-test 通过 boot smoke。但 BPF prog 看到的 args 还是全 0 |
+| 00:14 | 发现适配器只设 FL_SAVE_REGS_IF_SUPPORTED → IF_SUPPORTED→SAVE_REGS auto-upgrade 在 `#ifndef CONFIG_DYNAMIC_FTRACE_WITH_REGS` 里编译掉了 |
+| 00:17 | 改适配器加 `FL_SAVE_REGS`。重建 + flash |
+| 00:18 | `enabled_functions` 显示 `do_sys_open (1) R` 了 — 但 trace 仍空 |
+| 00:19 | 发现 ftrace_update_ftrace_func 只 patch ftrace_call NOP，不 patch ftrace_regs_call。x86 是 patch 两个 |
+| 00:20 | 改 ftrace.c 同时 patch 两个 NOP。重建 |
+| 00:21 | flash-test: **flags=0x20241, mode=0x1b6 — 真实参数到了!** |
+| 00:22 | flash-commit slot _a |
+| 00:23 | cold reboot 验证: WITH_REGS persistent，`regs->regs[1..7]` 都是真的 |
+
+### Round 3 经验教训
+
+1. **`#ifndef CONFIG_X` 块在 `X=y` 时不存在** —— 看到的 ftrace.c IF_SUPPORTED 自动升级
+   逻辑是给 *无* WITH_REGS arch 准备的兜底；arch 真支持 WITH_REGS 后这条死路。
+   消费者必须明确设 `FL_SAVE_REGS`（参考 kprobes 也是这么做）。
+2. **WITH_REGS 不是单 NOP** —— 一旦走进 ftrace_regs_caller，里面的 `ftrace_regs_call:
+   nop` 和 `ftrace_caller` 里的 `ftrace_call: nop` 是两个 NOP，必须分别 patch。
+   x86 ftrace.c 里 `ftrace_update_ftrace_func` 已经写了这模式，但 arm64 4.19 漏了。
+3. **mcount ABI 决定 `regs->regs[0]` 永远是 parent_pc** —— 因为编译器生成
+   `mov x0, x30; bl _mcount` 把 lr 放进 x0。原始 arg0 spill 到 callee-saved reg，
+   但位置因函数而异（vfs_open: x20，filp_open: x21，ksys_read: w19）—— 没法通用恢复。
+   想拿到 arg0 必须切到 `-fpatchable-function-entry=2` ABI（arm64 5.5+ 路线），
+   要重编整个 kernel 加重写 recordmcount，超出本分支范围。
+4. **enabled_functions 是诊断 ftrace 状态的关键文件** —— 能看 `R` 标志确认 patch site
+   切到 ftrace_regs_caller 了，是确诊 Round-2 vs Round-3 故障的最快路径。

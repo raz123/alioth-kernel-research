@@ -17,6 +17,7 @@
 - [`runbook/2026-04-28-ksu-patches.md`](runbook/2026-04-28-ksu-patches.md) — **每个 KSU 文件改动的详细解释**
 - [`runbook/2026-04-28-btf-firmware-loader.md`](runbook/2026-04-28-btf-firmware-loader.md) — **Phase 2 Round 1: tracing/lsm/ext verifier-level 解锁**
 - [`runbook/2026-04-28-arm64-bpf-trampoline.md`](runbook/2026-04-28-arm64-bpf-trampoline.md) — **Phase 2 Round 2: arm64 trampoline JIT + ftrace_function 适配器（fentry 真正 fire）**
+- [`runbook/2026-04-29-arm64-ftrace-with-regs.md`](runbook/2026-04-29-arm64-ftrace-with-regs.md) — **Phase 2 Round 3: HAVE_DYNAMIC_FTRACE_WITH_REGS backport（fentry 程序读到真实 x1..x7 函数参数）**
 - [`runbook/2026-04-28-recovery-runbook.md`](runbook/2026-04-28-recovery-runbook.md) — **设备砖了怎么救**
 
 ### Phase 2 patch + 工件
@@ -35,6 +36,7 @@
 | 我刷砖了 | [recovery-runbook](runbook/2026-04-28-recovery-runbook.md) |
 | 想在另一台 4.19 设备复现 KSU 兼容补丁 | [ksu-patches](runbook/2026-04-28-ksu-patches.md) |
 | 想搞清楚 BTF firmware loader 怎么做的 | [btf-firmware-loader](runbook/2026-04-28-btf-firmware-loader.md) |
+| 想搞清楚为什么 BPF fentry 程序读到真实函数参数 | [arm64-ftrace-with-regs](runbook/2026-04-29-arm64-ftrace-with-regs.md) |
 | 想理解为什么走到现在的方案（5 + 4 次踩坑） | [phase0-phase1-phase2-journey](journey/2026-04-28-phase0-phase1-phase2-journey.md) |
 | 想知道 Phase 2 实际做了哪些 vs 计划 | [STRATEGY.md](../workspace/kernel/patches/phase2-bpf-backport/00-survey/STRATEGY.md) |
 | 当前 active boot_a 跑啥版本 | [STATUS.md](../STATUS.md) |

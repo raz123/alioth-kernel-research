@@ -211,33 +211,77 @@ gated by `ARCH_SUPPORTS_FTRACE_DIRECT` (which 4.19 arm64 lacks),
 whose `op->func` is a tiny C handler that walks
 `tr->progs_hlist[BPF_TRAMP_FENTRY]` and calls each prog's `bpf_func`.
 
-### Caveats (4.19 ABI hard limits)
+### Phase 2 Round 3 — args delivery via WITH_REGS (committed 2026-04-29 00:20)
 
-- **Args zero-filled** — 4.19 arm64 has no `HAVE_DYNAMIC_FTRACE_WITH_REGS`,
-  so ftrace doesn't pass pt_regs to the callback. BPF programs that read
-  arg registers (`ctx[0..7]`) get 0. Programs that count, bpf_printk
-  literals, or update maps with constants work fine.
-- **fexit runs at entry** — the adapter is fundamentally a function-entry
+After Round 2's adapter wired the BPF callback into ftrace, the callback
+still saw `regs == NULL` because 4.19 arm64 didn't select
+`HAVE_DYNAMIC_FTRACE_WITH_REGS`. Round 3 backports it.
+
+| Commit | What |
+|---|---|
+| `2f9a02d7877f` | arm64 4.19 mcount-based `HAVE_DYNAMIC_FTRACE_WITH_REGS` (~200 LOC asm + C) |
+
+Three iterations to get there — all documented in
+`docs/runbook/2026-04-29-arm64-ftrace-with-regs.md`:
+1. Adapter set only `FL_SAVE_REGS_IF_SUPPORTED` → `R` flag never appeared
+   on `enabled_functions`. Auto-upgrade to `FL_SAVE_REGS` is gated under
+   `#ifndef CONFIG_DYNAMIC_FTRACE_WITH_REGS`. Fix: set `FL_SAVE_REGS`
+   directly.
+2. `R` flag appeared → no events. `ftrace_update_ftrace_func` only
+   patched `ftrace_call`, leaving the second NOP `ftrace_regs_call` as
+   bare-NOP → `ftrace_regs_caller` ran the prologue then fell through.
+   Fix: patch both NOPs (mirror x86's pattern).
+3. Events fire with real x1..x7.
+
+Live verification on cold-rebooted slot _a:
+
+```
+$ adb shell cat /sys/kernel/tracing/enabled_functions
+do_sys_open (1) R         <- ftrace_regs_caller is the patch target
+
+$ ls / ; echo > /data/local/tmp/test
+$ adb shell cat /sys/kernel/tracing/trace | grep FENTRY
+sh   FENTRY x1_filename=b40000718da8b2d8 x2_flags=20241 x3_mode=1b6
+ls   FENTRY x1_filename=72d088f968        x2_flags=a8000 x3_mode=0
+```
+
+`x2_flags=0x20241` = `O_RDONLY|O_NOCTTY|O_NONBLOCK|O_CLOEXEC|O_NOFOLLOW`
+for sh's `> /data/local/tmp/test`. `x3_mode=0x1b6` = octal 0666 (the create
+mode the shell passes for `>`). `x2_flags=0xa8000` for ls =
+`O_DIRECTORY|O_NONBLOCK|O_CLOEXEC|O_NOFOLLOW`. These are the actual flags
+userspace passed.
+
+### Remaining caveats (mcount ABI hard limits)
+
+- **`regs->regs[0]` is parent_pc, not function arg0.** The instrumented
+  function's prologue does `mov x0, x30; bl _mcount` to pass the parent
+  return address as mcount's first arg, so x0 is gone by the time
+  `ftrace_regs_caller` saves regs. The compiler spills the original x0
+  to a callee-saved register, but the destination varies per function so
+  no generic recovery path exists.
+- **fexit fires at entry** — the adapter is fundamentally a function-entry
   hook. fexit prog "attaches" (link object is real) but fires at entry.
-- **~100 cycles overhead per call** — goes through `ftrace_caller` → ops
-  list → C dispatcher (vs ~10 cycles native DIRECT_CALLS).
+- **~120 cycles overhead per call** — `ftrace_regs_caller` saves a
+  304-byte pt_regs frame on top of the existing ftrace_caller cost.
 
-To remove these caveats, additionally backport `HAVE_DYNAMIC_FTRACE_WITH_REGS`
-to arm64 4.19 (~200 LOC: `arch/arm64/kernel/entry-ftrace.S` + Kconfig
-`select`). Adapter already reads `regs->regs[0..7]` when regs is present.
+To recover `x0`, the only path is `-fpatchable-function-entry=2` (arm64
+5.5+ approach), which requires a kernel-wide compiler flag and a
+recordmcount overhaul — out of scope here.
 
 ### What practical BPF research now works
 
 - ✅ kprobe BPF (always worked, 19+ Android programs running)
 - ✅ tracepoint, raw_tracepoint, perf_event, sched_cls, struct_ops, etc.
 - ✅ uprobe + tracefs (verified live on Qunar `Ena1907_req` with full args)
-- ✅ **BPF fentry programs** — counters, bpf_printk hooks, map updates with constants
+- ✅ **BPF fentry programs reading function args x1..x7** via WITH_REGS — for
+  syscalls/file ops, that's filename pointer, flags, mode, length, etc.
 - ✅ **BPF LSM programs** — same caveats; security observability hooks fire
 - ✅ **BPF ext (program extensions)** — replace BPF prog functions
 
-For full-fidelity argument access on kernel function hooks, use uprobe on
-syscalls or kprobe-based tools (frida, stackplz, perf). For hookpoint
-counting / boolean enforcement / event sampling, fentry now works.
+`ctx[0]` (= x0 at mcount entry) is parent_pc, not function arg0 — see the
+"Remaining caveats" section above. For arg0, use kprobes/uprobes (frida,
+stackplz, perf) which install at function entry and capture the full
+register state.
 
 dmesg evidence:
 ```
@@ -253,9 +297,10 @@ Survey + strategy: `workspace/kernel/patches/phase2-bpf-backport/00-survey/STRAT
 
 ## Future work (out of scope)
 
-- **Backport `HAVE_DYNAMIC_FTRACE_WITH_REGS`** to 4.19 arm64 (~200 LOC).
-  Removes the args-zero-filled limitation and lets fentry programs
-  read x0..x7 through the ftrace adapter that's already wired up.
+- **Recover `ctx[0]` (function arg0)** by switching to a
+  `-fpatchable-function-entry=2` ABI (arm64 5.5+ approach). Requires
+  kernel-wide compiler flag change + recordmcount/objtool overhaul.
+  Without it, `regs->regs[0]` will keep showing parent_pc on this branch.
 - `BPF_PROG_TYPE_SYSCALL` (5.14+) — source-level backport (~hundreds of lines, verifier changes)
 - `BPF_PROG_TYPE_NETFILTER` (6.x) — source-level backport
 - Bake BTF into `/vendor/firmware/` so it survives factory reset (currently in `/data/local/tmp/`, lost on data wipe)

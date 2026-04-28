@@ -18,6 +18,7 @@ KernelSU upstream officially [dropped non-GKI support starting v1.0](https://ker
 - ✅ **Phase 1** (BTF + ftrace + KSU manager working) — DONE
 - ✅ **Phase 2 Round 1** (BTF firmware loader → tracing/lsm/ext verifier-level) — DONE
 - ✅ **Phase 2 Round 2** (arm64 trampoline JIT + ftrace_function adapter → fentry actually fires) — DONE — 451 events/sec captured live
+- ✅ **Phase 2 Round 3** (HAVE_DYNAMIC_FTRACE_WITH_REGS backport → fentry programs read real x1..x7 function args) — DONE — verified flags=0x20241/0xa8000, mode=0666 live
 
 ## Quick navigation
 
@@ -27,6 +28,7 @@ KernelSU upstream officially [dropped non-GKI support starting v1.0](https://ker
 | The full story of how this was built (5 brick attempts, 11 KSU patches) | [`docs/journey/`](docs/journey/) |
 | Each KSU patch explained line-by-line | [`docs/runbook/2026-04-28-ksu-patches.md`](docs/runbook/2026-04-28-ksu-patches.md) |
 | **Phase 2 BTF firmware loader patch** | [`docs/runbook/2026-04-28-btf-firmware-loader.md`](docs/runbook/2026-04-28-btf-firmware-loader.md) |
+| **Phase 2 R3: WITH_REGS backport — fentry args delivery** | [`docs/runbook/2026-04-29-arm64-ftrace-with-regs.md`](docs/runbook/2026-04-29-arm64-ftrace-with-regs.md) |
 | Device bricked? Recovery steps | [`docs/runbook/2026-04-28-recovery-runbook.md`](docs/runbook/2026-04-28-recovery-runbook.md) |
 | What CIP-128 already backported (informs Phase 2) | [`workspace/kernel/patches/phase2-bpf-backport/00-survey/STRATEGY.md`](workspace/kernel/patches/phase2-bpf-backport/00-survey/STRATEGY.md) |
 | Original eBPF feature survey (5.5 → 6.12 timeline) | [`docs/research/2026-04-28-ebpf-feature-survey.md`](docs/research/2026-04-28-ebpf-feature-survey.md) |

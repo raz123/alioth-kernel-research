@@ -6,12 +6,13 @@
 | Phase 0 (vanilla) | DONE | NDK r29 clang r563880c match for stock; vermagic identical |
 | Phase 1 (BTF+ftrace+KSU) | **🏆 完整功能 — Manager「工作中 ✓」** | KSU v3.2.4 全集成: 16 个 KSU 文件 patch + 真实 supercall dispatch + apk_sign 验证我们 fork 的 manager; 「Crowning manager」+ 「工作中 ✓」<GKI> 状态; 4 个 tab 全可用 |
 | Phase 2 (BPF backport) | **🏆 tracing+lsm+ext 解锁** | CIP 已 backport bpf_link/iter/trampoline/struct_ops/sleepable; 我们 patch btf.c+verifier.c 增加 BTF firmware 加载（绕开 alioth 的 64MB Image 限制）→ 29/32 prog types available。仅 `syscall` / `netfilter` 真正缺（5.14+/6.x） |
+| Phase 2 R3 (WITH_REGS) | **🏆 fentry args 可读 (x1..x7)** | arm64 mcount-based ftrace 上 backport `HAVE_DYNAMIC_FTRACE_WITH_REGS` (~200 LOC asm + C)。BPF fentry 程序现在能读到真实 `regs->regs[1..7]`（即函数参数 1..7）。`regs->regs[0]` 仍是 parent_pc — mcount ABI 硬限制，无法绕开 |
 
 ## Current device state
 
-- Active slot: `_a` flashed with **P2 kernel** (P1 + BTF firmware loader patch) — persistent
-- Persistent image: `workspace/builds/20260428-214502-p2-btf-fw6.img`
-- Kernel: `Linux 4.19.325-cip128-st12-perf-g19e92825409b-dirty #28 ... 21:44:53`
+- Active slot: `_a` flashed with **P2 R3 kernel** (P1 + BTF FW loader + WITH_REGS backport) — persistent
+- Persistent image: `workspace/builds/20260429-002039-p2-with-regs3.img`
+- Kernel: `Linux 4.19.325-cip128-st12-perf-g8ccba43d1805-dirty #45 ... 00:20:19`
 - `/proc/version` shows `(claude@research)` — our build
 - KSU module: loaded, feature handlers registered, manager 工作中 ✓
 - BTF file at `/data/local/tmp/vmlinux.btf` (9.7MB strict-4.19, no FLOAT/ENUM64/etc) — required at runtime for tracing/lsm/ext
@@ -107,16 +108,49 @@ $ ls / ; cat /sys/kernel/tracing/trace
   ... 451 events captured in <1s
 ```
 
-### 已知限制（unfixable in 4.19 without WITH_ARGS backport）
+### Phase 2 Round 3: HAVE_DYNAMIC_FTRACE_WITH_REGS backport (kernel commit `2f9a02d7877f`)
 
-- **Args 全 0** —— 4.19 arm64 没 `HAVE_DYNAMIC_FTRACE_WITH_REGS`，ftrace 不传 pt_regs 给 callback
-  - 影响: BPF 程序读 ctx[0..7] 都拿到 0
-  - 不影响: counter / bpf_printk / map update with constants 等无需 args 的逻辑
-- **fexit 实际是 fentry** —— 适配器只在函数入口触发；fexit prog 也在入口跑
-- **每次调用 ~100 cycles 开销**（vs DIRECT_CALL 的 ~10）—— 走 ftrace_caller + ops list
+✅ **arm64 4.19 mcount-based WITH_REGS** (~200 LOC asm + C)
+- `arch/arm64/include/asm/ftrace.h`: `ARCH_SUPPORTS_FTRACE_OPS 1`
+- `arch/arm64/Kconfig`: `select HAVE_DYNAMIC_FTRACE_WITH_REGS`
+- `arch/arm64/kernel/entry-ftrace.S`:
+  - `ftrace_caller` 现在 load `function_trace_op` 到 x2，传 NULL regs (x3)
+  - 新加 `ftrace_regs_caller`：mcount_enter 后 `sub sp, #S_FRAME_SIZE` 分配 pt_regs，
+    保存 x0..x29 + 从 mcount frame 恢复 instr-fn 的 x29/x30 + sp/pc/pstate，传 pt_regs* 作为 x3
+- `arch/arm64/kernel/ftrace.c`:
+  - 新加 `ftrace_modify_call(rec, old, new)` — 切换 patch site 在 ftrace_caller / ftrace_regs_caller 之间
+  - `ftrace_update_ftrace_func` 现在同时 patch `ftrace_call` 和 `ftrace_regs_call` 两个 NOP（x86 同款）
+- `kernel/bpf/trampoline.c`:
+  - `ksu_register_ftrace_adapter` 显式设 `FTRACE_OPS_FL_SAVE_REGS`（之前只设 IF_SUPPORTED 不行 ——
+    `CONFIG_DYNAMIC_FTRACE_WITH_REGS=y` 时 ftrace.c 的 IF_SUPPORTED→SAVE_REGS auto-upgrade 被 `#ifndef` 编译掉了）
 
-要让 args 可用，需要单独 backport `HAVE_DYNAMIC_FTRACE_WITH_REGS` 到 4.19 arm64
-(~200 LOC entry-ftrace.S 改动)，估计 1 天工作。
+✅ **Validated live** (cold reboot from slot _a):
+```
+$ adb shell cat /sys/kernel/tracing/enabled_functions
+do_sys_open (1) R       <- R 标志: ftrace 已切换 patch site 到 ftrace_regs_caller
+
+$ ls / ; echo > /data/local/tmp/test
+$ adb shell cat /sys/kernel/tracing/trace
+  ls    FENTRY x1_filename=72d088f968 x2_flags=a8000  x3_mode=0    <- O_DIRECTORY|O_NONBLOCK|...
+  sh    FENTRY x1_filename=b40000718da8b2d8 x2_flags=20241 x3_mode=1b6  <- 0666 写文件
+```
+
+### 仍存在的限制（mcount ABI 硬限制）
+
+- **`regs->regs[0]` 仍是 parent_pc，不是函数 arg0** —— gcc/clang `-pg` 在函数 prologue 末尾发射 `mov x0, x30; bl _mcount`，
+  把 lr 放到 x0 当 mcount 的第一个参数。等到 ftrace_regs_caller 保存寄存器时 x0 已经被覆盖。
+  编译器会把原始 x0 spill 到一个 callee-saved register（x19/x20/x21 等），但 spill 位置因函数而异，无法通用恢复。
+  要根治需要走 `-fpatchable-function-entry=2` ABI（arm64 5.5+ 路线），重新编译整个 kernel + 重写 ftrace 入口。
+- **fexit 仍在入口触发** —— 适配器是入口 hook，fexit 也跑在入口
+- **每次调用 ~120 cycles 开销** —— ftrace_regs_caller 比 ftrace_caller 多保存了 304 bytes 的 pt_regs
+
+### 实际意义
+
+BPF fentry 程序现在可以做的事：
+- ✅ 读函数参数 1..7 (`ctx[1]` 到 `ctx[7]`) — userspace 指针、syscall flags、mode、length 等
+- ✅ 读 syscall 入口的 `pt_regs *regs` 参数（很多 syscall handler 第一个就是 regs，等于 `ctx[1]`）
+- ⚠️ `ctx[0]` 是 parent_pc —— 程序应该忽略它，或者用它做 caller 识别
+- ❌ 不能修改寄存器后让函数继续（pt_regs snapshot only — adapter 不写回硬件 regs）
 
 ## KSU on 4.19 — full capability (final state)
 
