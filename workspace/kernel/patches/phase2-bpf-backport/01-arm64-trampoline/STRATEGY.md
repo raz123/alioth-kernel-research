@@ -153,3 +153,63 @@ For the user's actual research goal (Qunar's Ena1907_req SO function),
 uprobe + tracefs is the right tool and works since 4.19 base — verified
 live with full register-arg capture (Test 1+1b earlier in this session).
 
+
+---
+
+## Final Outcome (2026-04-28 23:36) — fentry **WORKING**
+
+### What unblocked it
+
+After committing the trampoline JIT (9a7c71dabb06), the next layer was
+discovered: `kernel/bpf/trampoline.c::register_fentry()` calls
+`register_ftrace_direct()` (gated on `ARCH_SUPPORTS_FTRACE_DIRECT` which
+4.19 arm64 doesn't have), so our nicely-emitted trampoline was never
+reached.
+
+The pragmatic solution: bypass the trampoline image entirely on this
+codepath. Patch `register_fentry()` to fall back to a `register_ftrace_function`
+based adapter when DIRECT returns -ENOTSUPP. The adapter's `op->func` is a
+C handler that walks `tr->progs_hlist[BPF_TRAMP_FENTRY]` and calls each
+prog's `bpf_func` directly.
+
+Committed as `8ccba43d1805`, ~150 LOC in `kernel/bpf/trampoline.c`.
+
+### Live verification
+
+After flashing to slot _a:
+
+```
+$ /system/bin/bpftool prog loadall fentry_test.bpf.o /sys/fs/bpf/x autoattach
+$ /system/bin/bpftool link list
+  1: tracing  prog 77   prog_type tracing  attach_type trace_fentry
+  2: tracing  prog 79   prog_type tracing  attach_type trace_fexit
+
+$ ls / ; cat /sys/kernel/tracing/trace
+  sh-4443  ... bpf_trace_printk: fentry do_sys_open flags=0
+  cat-4510 ... bpf_trace_printk: fentry do_sys_open flags=0
+  ls-4507  ... bpf_trace_printk: fentry do_sys_open flags=0
+  ... 451 events captured in <1s
+```
+
+**BPF tracing prog now actually attaches to kernel functions** on this
+4.19-cip kernel. The `tracing` prog type is no longer just "available"
+in the verifier sense — programs really run and produce output.
+
+### Caveats
+
+1. **Args zero-filled**: 4.19 arm64 has no `HAVE_DYNAMIC_FTRACE_WITH_REGS`,
+   so ftrace doesn't pass pt_regs to the callback. Programs that read arg
+   registers get 0. Programs that count, bpf_printk literals, or update
+   maps with constants work.
+2. **fexit acts as fentry**: the adapter triggers only at function entry.
+   The fexit prog gets attached and will run, but at entry, not at return.
+3. **~100 cycle overhead per call** vs ~10 for native DIRECT_CALLS.
+
+### What's still future work
+
+To get args populated, backport `HAVE_DYNAMIC_FTRACE_WITH_REGS` to 4.19
+arm64 (~200 LOC: `arch/arm64/kernel/entry-ftrace.S` + Kconfig select).
+Then the existing `FTRACE_OPS_FL_SAVE_REGS_IF_SUPPORTED` flag will start
+returning real pt_regs and our adapter will read x0..x7 from there
+(code path already wired up).
+

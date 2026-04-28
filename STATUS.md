@@ -83,24 +83,40 @@ libbpf: prog 'trace_open': failed to attach: Unknown error 524
 绕开 alioth bootloader 的 ~64MB Image 大小限制——内核 Image 零增长。
 完整说明: `docs/runbook/2026-04-28-btf-firmware-loader.md`
 
-### Phase 2 Round 2: arm64 BPF trampoline JIT backport (committed, gated)
+### Phase 2 Round 2: BPF fentry attach 真正打通 (kernel commits `9a7c71dabb06` + `8ccba43d1805`)
 
-**JIT side: DONE (committed kernel-side at `9a7c71dabb06`)**
-- `arch_prepare_bpf_trampoline()` strong-symbol implementation (4.19-adapted from upstream 6.0)
+✅ **arm64 BPF trampoline JIT 完整 backport** (~500 LOC)
+- `arch_prepare_bpf_trampoline()` strong-symbol implementation
 - `bpf_arch_text_poke()` for arm64 (nop ↔ bl patching)
 - Supporting `aarch64_insn_gen_load_store_imm()` + A64_LS_IMM macros
-- ~500 LOC, compiles cleanly, RAM-boots, vmlinux has the strong symbols
 
-**Attach side: still blocked by orthogonal subsystem (`ARCH_SUPPORTS_FTRACE_DIRECT`)**
-- `kernel/bpf/trampoline.c::register_fentry()` calls `register_ftrace_direct()` first
-- That helper is a static-inline stub returning `-ENOTSUPP` until
-  `CONFIG_DYNAMIC_FTRACE_WITH_DIRECT_CALLS=y` is selectable, which depends
-  on `ARCH_SUPPORTS_FTRACE_DIRECT` (added to arm64 only in upstream Linux 6.2)
-- Blocks our trampoline emitter from being reached on most kernel functions
+✅ **`register_ftrace_function`-based fallback adapter** (~150 LOC)
+- 当 `register_ftrace_direct` 返回 `-ENOTSUPP`（4.19 arm64 没 `ARCH_SUPPORTS_FTRACE_DIRECT`），fallback 到我们的 ftrace_ops 适配器
+- 适配器 ftrace_ops 用 `FTRACE_OPS_FL_SAVE_REGS_IF_SUPPORTED`
+- callback 走 `tr->progs_hlist[BPF_TRAMP_FENTRY]`，C 里直接 call `p->bpf_func(ctx, insns)`
 
-**Path forward**: backport `ARCH_SUPPORTS_FTRACE_DIRECT` and arm64 ftrace
-direct-call infrastructure (~200-300 more LOC in ftrace internals + arm64
-entry asm). Tracking: `workspace/kernel/patches/phase2-bpf-backport/01-arm64-trampoline/STRATEGY.md`
+✅ **Validated live**:
+```
+$ /system/bin/bpftool prog loadall fentry.bpf.o /sys/fs/bpf/x autoattach
+$ /system/bin/bpftool link list
+  1: tracing  prog 77   prog_type tracing  attach_type trace_fentry
+  2: tracing  prog 79   prog_type tracing  attach_type trace_fexit
+
+$ ls / ; cat /sys/kernel/tracing/trace
+  sh-4443  ... bpf_trace_printk: fentry do_sys_open flags=0
+  ... 451 events captured in <1s
+```
+
+### 已知限制（unfixable in 4.19 without WITH_ARGS backport）
+
+- **Args 全 0** —— 4.19 arm64 没 `HAVE_DYNAMIC_FTRACE_WITH_REGS`，ftrace 不传 pt_regs 给 callback
+  - 影响: BPF 程序读 ctx[0..7] 都拿到 0
+  - 不影响: counter / bpf_printk / map update with constants 等无需 args 的逻辑
+- **fexit 实际是 fentry** —— 适配器只在函数入口触发；fexit prog 也在入口跑
+- **每次调用 ~100 cycles 开销**（vs DIRECT_CALL 的 ~10）—— 走 ftrace_caller + ops list
+
+要让 args 可用，需要单独 backport `HAVE_DYNAMIC_FTRACE_WITH_REGS` 到 4.19 arm64
+(~200 LOC entry-ftrace.S 改动)，估计 1 天工作。
 
 ## KSU on 4.19 — full capability (final state)
 
