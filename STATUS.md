@@ -11,13 +11,15 @@
 
 ## Current device state
 
-- Active slot: `_a` flashed with **P2 R4 kernel** (P1 + BTF FW + 5.5/5.18 mainline ports) — persistent
-- Persistent image: `workspace/builds/20260429-024852-p2-fexit-clean.img`
-- Kernel: `Linux 4.19.325-cip128-st12-perf-g6aa1a1ec0463-dirty #56 ... 02:48:54`
+- Active slot: `_a` flashed with **P2 R4 kernel** (P1 + BTF FW + 5.5/5.18 mainline ports + bpf_shtab fix + persist BTF path) — persistent
+- Persistent image: `workspace/builds/20260429-095317-p2-final-persist.img`
+- Kernel: `Linux 4.19.325-cip128-st12-perf-g43c03d52ba05-dirty`
+- BTF location: **`/mnt/vendor/persist/vmlinux.btf`** (survives factory reset; install via `scripts/install-btf-to-persist.sh`)
 - `/proc/version` shows `(claude@research)` — our build
 - KSU module: loaded, feature handlers registered, manager 工作中 ✓
-- BTF file at `/data/local/tmp/vmlinux.btf` (9.7MB strict-4.19, no FLOAT/ENUM64/etc) — required at runtime for tracing/lsm/ext
+- BTF file at `/mnt/vendor/persist/vmlinux.btf` (9.7MB strict-4.19, no FLOAT/ENUM64/etc, with bpf_shtab fix) — survives factory reset / OTA
 - Canonical strict BTF: `workspace/kernel/patches/phase2-bpf-backport/00-survey/btf-fw/vmlinux.btf`
+- One-shot install script: `scripts/install-btf-to-persist.sh` (run once per device)
 - Released artifacts at GitHub: [`alioth-r2`](https://github.com/ltlly/alioth-kernel-research/releases/tag/alioth-r2)
 - Stock backup at `workspace/stock-images/boot_a-original.img` for instant restore
 - AVB: vbmeta_a + vbmeta_b flashed with `--disable-verification`
