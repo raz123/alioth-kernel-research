@@ -69,8 +69,8 @@ jobs:
           do.systemless=1
           do.cleanup=1
           do.cleanuponabort=0
-          BLOCK=auto
-          IS_SLOT_DEVICE=1
+           BLOCK=/dev/block/bootdevice/by-name/boot
+           IS_SLOT_DEVICE=1
           RAMDISK_COMPRESSION=auto
           PATCH_VBMETA_FLAG=auto
           '; }
