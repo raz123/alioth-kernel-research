@@ -31,10 +31,10 @@ jobs:
           unzip -q android-ndk-r29-linux.zip
           rm android-ndk-r29-linux.zip
 
-      - name: Clone kernel source
+      - name: Clone kernel source (LineageOS lineage-23.2)
         run: |
-          git clone --depth 1 --single-branch --branch alioth-bpf-research \
-            https://github.com/raz123/android_kernel_xiaomi_sm8250-bpf-research.git \
+          git clone --depth 1 --single-branch --branch lineage-23.2 \
+            https://github.com/LineageOS/android_kernel_xiaomi_sm8250.git \
             workspace/kernel/android_kernel_xiaomi_sm8250
 
       - name: Patch toolchain path
@@ -42,11 +42,6 @@ jobs:
           NDK_BIN="$PWD/android-ndk-r29/toolchains/llvm/prebuilt/linux-x86_64/bin"
           printf 'CLANG_PATH="%s/clang"\nCLANG_DIR="%s"\n' "$NDK_BIN" "$NDK_BIN" \
             > workspace/toolchain/clang-path.env
-
-      - name: Remove KernelSU Kconfig reference (not in source tree)
-        run: |
-          sed -i '/source "drivers\/kernelsu\/Kconfig"/d' \
-            workspace/kernel/android_kernel_xiaomi_sm8250/drivers/Kconfig
 
       - name: Build kernel (vanilla + zram/zswap)
         run: |
