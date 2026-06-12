@@ -25,7 +25,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y bison flex bc ccache lz4 cpio \
             python3-dev libssl-dev libelf-dev clang gawk dwarves lld \
-            llvm erofs-utils zip tar xz-utils
+            llvm erofs-utils zip tar xz-utils dos2unix
 
       - name: Download NDK r29
         run: |
@@ -95,13 +95,18 @@ jobs:
           ZIP_NAME="alioth-kernel-${BUILD_DATE}.zip"
           cp workspace/kernel/android_kernel_xiaomi_sm8250/out/arch/arm64/boot/Image.gz anykernel3/
           cd anykernel3
-          # Use zip -1 for broader TWRP compatibility; -X avoids extra attrs
-          zip -r1X "../${ZIP_NAME}" * -x '.git' 'README.md' '*placeholder'
+          # Fix CRLF line endings on all scripts (OrangeFox/TWRP parsers are strict)
+          dos2unix anykernel.sh META-INF/com/google/android/update-binary \
+            META-INF/com/google/android/updater-script tools/ak3-core.sh 2>/dev/null || true
+          # Canonical AnyKernel3 zip command: -r9 for max compression, exclude .git/.github/README
+          zip -r9 "../${ZIP_NAME}" * -x '.git' '.github' 'README.md' '*placeholder'
           echo "zip_name=${ZIP_NAME}" >> "$GITHUB_OUTPUT"
           echo "=== zip contents ==="
           unzip -l "../${ZIP_NAME}"
           echo "=== zip test ==="
           unzip -t "../${ZIP_NAME}"
+          echo "=== sha256 ==="
+          sha256sum "../${ZIP_NAME}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
