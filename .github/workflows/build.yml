@@ -77,17 +77,27 @@ jobs:
 
           split_boot
 
+          # Enable zswap at boot via kernel cmdline
+          patch_cmdline zswap.enabled 1
+          patch_cmdline zswap.compressor lz4
+          patch_cmdline zswap.zpool z3fold
+          patch_cmdline zswap.max_pool_percent 25
+
           flash_boot
           EOF
 
-      - name: Package kernel zip
+      - name: Package kernel zip (datetime-stamped)
+        id: package
         run: |
+          BUILD_DATE=$(date -u +%Y%m%d-%H%M%S)
+          ZIP_NAME="alioth-kernel-${BUILD_DATE}.zip"
           cp workspace/kernel/android_kernel_xiaomi_sm8250/out/arch/arm64/boot/Image.gz anykernel3/
           cd anykernel3
-          zip -r9 ../alioth-kernel.zip * -x .git README.md *placeholder
+          zip -r9 "../${ZIP_NAME}" * -x .git README.md *placeholder
+          echo "zip_name=${ZIP_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: alioth-kernel-${{ github.sha }}
-          path: alioth-kernel.zip
+          name: ${{ steps.package.outputs.zip_name }}
+          path: alioth-kernel-*.zip
