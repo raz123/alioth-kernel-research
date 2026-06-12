@@ -1,0 +1,93 @@
+name: Build alioth kernel
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo apt-get clean
+          df -h
+
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bison flex bc ccache lz4 cpio \
+            python3-dev libssl-dev libelf-dev clang gawk dwarves lld \
+            llvm erofs-utils zip tar xz-utils
+
+      - name: Download NDK r29
+        run: |
+          wget -q https://dl.google.com/android/repository/android-ndk-r29-linux.zip
+          unzip -q android-ndk-r29-linux.zip
+          rm android-ndk-r29-linux.zip
+
+      - name: Clone kernel source
+        run: |
+          git clone --depth 1 --single-branch --branch alioth-bpf-research \
+            https://github.com/raz123/android_kernel_xiaomi_sm8250-bpf-research.git \
+            workspace/kernel/android_kernel_xiaomi_sm8250
+
+      - name: Patch toolchain path
+        run: |
+          NDK_BIN="$PWD/android-ndk-r29/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          printf 'CLANG_PATH="%s/clang"\nCLANG_DIR="%s"\n' "$NDK_BIN" "$NDK_BIN" \
+            > workspace/toolchain/clang-path.env
+
+      - name: Build kernel (vanilla + zram/zswap)
+        run: |
+          chmod +x scripts/build.sh
+          ./scripts/build.sh vanilla workspace/kernel/patches/zram-zswap.config
+
+      - name: Clone AnyKernel3
+        run: git clone --depth 1 https://github.com/osm0sis/AnyKernel3.git anykernel3
+
+      - name: Configure AnyKernel3
+        run: |
+          cat > anykernel3/anykernel.sh << 'EOF'
+          # AnyKernel3 Ramdisk Mod Script
+          # osm0sis @ xda-developers
+
+          properties() { '
+          kernel.string=Alioth Kernel for Poco F3/Redmi K40/Mi 11X
+          do.devicecheck=1
+          device.name1=alioth
+          device.name2=mi 11x
+          device.name3=redmi k40
+          do.modules=0
+          do.systemless=1
+          do.cleanup=1
+          do.cleanuponabort=0
+          BLOCK=auto
+          IS_SLOT_DEVICE=1
+          RAMDISK_COMPRESSION=auto
+          PATCH_VBMETA_FLAG=auto
+          '; }
+
+          . tools/ak3-core.sh
+
+          split_boot
+
+          flash_boot
+          EOF
+
+      - name: Package kernel zip
+        run: |
+          cp workspace/kernel/android_kernel_xiaomi_sm8250/out/arch/arm64/boot/Image.gz anykernel3/
+          cd anykernel3
+          zip -r9 ../alioth-kernel.zip * -x .git README.md *placeholder
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: alioth-kernel-${{ github.sha }}
+          path: alioth-kernel.zip
